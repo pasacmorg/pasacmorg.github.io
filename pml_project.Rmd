@@ -7,7 +7,7 @@ output: html_document
 
 #### Background
 
-Wearable personal fitness monitors allow an individual to track different aspects of physical motion, and are becoming more popular.  Data collected from these devices are typically used to track what is activity happening at a given point in time, but typically do not seek to determine the quality of that activity.  Weight lifting is an activity in which an incorrect technique can have negative physical repercussions. 
+Wearable personal fitness monitors allow an individual to track different aspects of physical motion, and are becoming more popular.  Data collected from these devices are commonly used to track what activity happening at a given point in time, but typically do not seek to determine the quality of that activity.  Weight lifting is an activity in which an incorrect technique can have negative physical repercussions. 
 
 [Velloso *et al.*][] conducted a [study](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz3JGuzH3B9) in which one correct and four incorrect weight lifting techniques were recorded using a variety of wearable sensors.  I have been asked to build a model using sensor readings from wearable monitors to predict which of the five techniques the subjects were performing.  This is recorded in the 'classe' variable with one of the following five values : {A,B,C,D,E}.  Two data sets have been derived from the Velloso study: a training data set consisting 19,622 observations including the 'classe' variable and a validation data set consisting of 20 observations without the 'classe' variable. My task is to correctly predict the value of 'classe' variable in the validation data set. 
 
