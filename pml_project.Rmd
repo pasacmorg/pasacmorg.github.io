@@ -1,0 +1,114 @@
+---
+title: "Practical Machine Learning Project"
+author: "pascmorg"
+date: "Tuesday, November 18, 2014"
+output: html_document
+---
+
+#### Background
+
+Wearable personal fitness monitors allow an individual to track different aspects of physical motion, and are becoming more popular.  Data collected from these devices are typically used to track what is activity happening at a given point in time, but typically do not seek to determine the quality of that activity.  Weight lifting is an activity in which an incorrect technique can have negative physical repercussions. 
+
+[Velloso *et al.*][] conducted a [study](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz3JGuzH3B9) in which one correct and four incorrect weight lifting techniques were recorded using a variety of wearable sensors.  I have been asked to build a model using sensor readings from wearable monitors to predict which of the five techniques the subjects were performing.  This is recorded in the 'classe' variable with one of the following five values : {A,B,C,D,E}.  Two data sets have been derived from the Velloso study: a training data set consisting 19,622 observations including the 'classe' variable and a validation data set consisting of 20 observations without the 'classe' variable. My task is to correctly predict the value of 'classe' variable in the validation data set. 
+
+#### Data Preparation
+
+Preliminary examination of the training data set revealed two issues that needed to be addressed before analysis could proceed:
+
+1. I encountered strings indicating empty ('NA') and Excel divide by zero ('#DIV/0!') values, and treated them both as missing values by encoding them as `NA`.
+2. Column cvtd_timestamp contained datetime fields and were converted POSIX timestamps.
+
+`data.frame` objects were converted to `data.table` objects and the name of the dependent variable was changed from `classe` to `.outcome` to streamline processing with the `caret` package.
+
+
+``` {r cache=TRUE}
+require(data.table)
+require(caret)
+require(doParallel)
+setwd('F:/Users/paul/Documents/R_Projects/jhuds/c8p')
+df <- read.csv('data/pml-training.csv', header=TRUE, na.strings=c('NA','#DIV/0!'))
+dt0 <- as.data.table(df)
+validation <- read.csv('data/pml-testing.csv', header=TRUE, na.strings=c('NA','#DIV/0!'))
+vt0 <- as.data.table(validation)
+dt0$cvtd_timestamp <- as.POSIXct(dt0$cvtd_timestamp, format='%m/%d/%Y %H:%M')
+setnames(dt0, 'classe', '.outcome')
+```
+
+Initial inspection of the resulting data set finds that:
+
+1. Variable `user_name` identifies the subject
+2. Timestamps appear in the `raw_timestamp_part_1`,  `raw_timestamp_part_2`, and `cvtd_timestamp` variables
+3. Variable `X` is a row number
+4. Variable `num_window` appears to have relationship with `user_name` and `X`
+5. Observations appear to be ordered by the the outcome and the timestamps
+
+Since it cannot be guaranteed that these relationships would exist in any future data set, I will exclude these variables from further analysis.  The `caret` package is used to qualify the remaining variables based on thresholds for variance, correlation, and presence in linear combinations.  Since many columns were fully populated, while others mostly empty, I also chose to exclude columns that had a more than 10% missing values.
+
+The training data is split 50/50 into training and testing data sets, and the frequency of the the dependent variable is computed in each.  
+
+ 
+``` {r cache=TRUE}
+ex0 <- c('X','user_name', 'cvtd_timestamp', 'raw_timestamp_part_1','raw_timestamp_part_2', 'num_window')
+
+nzv <- nearZeroVar(dt0,saveMetrics=TRUE) 
+ex1 <- c(ex0, rownames(nzv)[nzv$zeroVar | nzv$nzv])
+dt1 <- dt0[, setdiff(colnames(dt0), ex1), with=FALSE]
+
+ex2 <- names(dt1)[which(apply(apply(dt1,2,is.na),2, sum)/nrow(dt1) > .1)]
+dt2 <- dt0[, .SD, .SDcols=setdiff(colnames(dt1), ex2)]
+
+cor2 <- cor(dt2[, .SD, .SDcols=which(!(colnames(dt2) %in% '.outcome'))])
+
+ex3  <- colnames(dt2)[(findCorrelation(cor2, cutoff = .90, verbose = FALSE))]
+dt3  <- dt2[, .SD, .SDcols=setdiff(colnames(dt2), ex3)]
+
+ex4  <- colnames(dt3)[ findLinearCombos(dt3[, .SD, .SDcols=which(!(colnames(dt3) %in% '.outcome'))])$remove]
+dt4  <- dt3[, .SD, .SDcols=setdiff(colnames(dt3), ex4)]
+
+set.seed(1234)
+
+inTrain    <- 1:nrow(dt4) %in% createDataPartition(dt4$.outcome, p=0.5, list=FALSE)
+
+training <- dt4[ inTrain, ]
+testing  <- dt4[ !inTrain, ]
+
+round(table(training$.outcome) / nrow(training),2)
+round(table(testing$.outcome)  / nrow(testing),2)
+```
+
+I initially set out to build a stacked model using the following techniques: 
+
+Model|caret method
+-----|------------
+Stochastic Gradient Boosting|gbm
+glmnet|glmnet
+Random Forest|rf
+Support Vector Machines with Radial Basis Function Kernel|svmRadial
+
+For out of sample predictions on the testing data, rf performed the best, followed closely by gbm.  Stacked models were also constructed using different subsets of the 4 models above, but none beat rf by itself.
+
+Here we take advantage of caret's parallel processing capabilities for training and fit a RandomForest using 10-fold cross validation and examine the fit.
+
+``` {r cache=TRUE} 
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+rf.fit  <- train(.outcome ~ ., method='rf'  ,data=training, trControl=trainControl(method='cv', number=10))
+stopCluster(cl)
+rf.fit
+```
+
+Based on the accuracy measure produced by 10-fold cross validation I would expect the out of sample error to be very low.
+
+Using the model selected by caret, the `.outcome` response is predicted using the test data set. 
+
+``` {r cache=TRUE} 
+rf.pred <- predict(rf.fit, newdata=testing)
+confusionMatrix(rf.pred, testing$.outcome)
+```
+
+With test data set accuracy of over 99%, the out of sample error is indeed very low.  
+
+#### Appendix
+
+##### Velloso *et al.*
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
